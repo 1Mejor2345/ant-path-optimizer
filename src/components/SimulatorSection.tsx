@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { MapView } from './MapView';
-import { Sidebar } from './Sidebar';
-import { ConvergenceChart } from './ConvergenceChart';
+import { EnhancedMapView } from './EnhancedMapView';
+import { SimulatorWizard } from './SimulatorWizard';
+import { MiniConvergenceChart } from './MiniConvergenceChart';
 import { useACOSimulator } from '@/hooks/useACOSimulator';
+import { useAntAnimation } from '@/hooks/useAntAnimation';
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
+import { runNearestNeighbor } from '@/lib/aco-algorithm';
 
 export function SimulatorSection() {
   const { isLoaded } = useGoogleMaps();
@@ -14,26 +16,32 @@ export function SimulatorSection() {
     state,
     buildDistanceMatrix,
     ejecutarACO,
-    advanceStep,
     togglePause,
-    setStepMode,
-    runNearestNeighborHeuristic,
-    run2OptHeuristic,
-    exportResults,
     reset,
     addLog
   } = useACOSimulator();
 
   const [params, setParams] = useState(DEFAULT_ACO_PARAMS);
   const [speed, setSpeed] = useState(1);
-  const [showFallbacks, setShowFallbacks] = useState(false);
   const [showPheromoneMap, setShowPheromoneMap] = useState(true);
   const [showBestRoute, setShowBestRoute] = useState(false);
-  const [animatedAntPosition, setAnimatedAntPosition] = useState<google.maps.LatLngLiteral | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [buildProgress, setBuildProgress] = useState(0);
+  const [bestRouteColor, setBestRouteColor] = useState('#10b981');
+  const [matrixProgress, setMatrixProgress] = useState(0);
+  const [nnSolution, setNnSolution] = useState<{ tour: number[]; length: number } | null>(null);
 
-  // Initialize DirectionsService when Maps API is loaded
+  const {
+    animatedAnts,
+    swarmAnts,
+    pheromoneTrails,
+    animateSingleAnt,
+    stopAnimation,
+    clearTrails
+  } = useAntAnimation({
+    routePolylines: state.routePolylines,
+    nodeOrder: state.nodeOrder,
+    speed
+  });
+
   useEffect(() => {
     if (isLoaded && !directionsServiceRef.current) {
       directionsServiceRef.current = new google.maps.DirectionsService();
@@ -47,146 +55,152 @@ export function SimulatorSection() {
     retries: number
   ) => {
     const nodeOrder = [start, ...stops];
-    setBuildProgress(0);
+    setMatrixProgress(0);
+    setNnSolution(null);
+    clearTrails();
     
-    await buildDistanceMatrix(
+    const result = await buildDistanceMatrix(
       nodeOrder,
       directionsServiceRef.current,
       delay,
       retries,
-      (progress) => setBuildProgress(progress)
+      (progress) => setMatrixProgress(progress)
     );
-  }, [buildDistanceMatrix]);
+    
+    return result;
+  }, [buildDistanceMatrix, clearTrails]);
 
   const handleRunACO = useCallback(async () => {
     setShowBestRoute(false);
     setShowPheromoneMap(true);
+    clearTrails();
     
-    await ejecutarACO(
+    const result = await ejecutarACO(
       params,
       speed,
       (iteration, best) => {
-        // Callback per iteration
+        // Iteration callback
       },
       (ant, probs) => {
-        // Callback per ant step (for step mode)
+        // Step callback
       }
     );
-  }, [ejecutarACO, params, speed]);
-
-  const handleAnimateACO = useCallback(async () => {
-    if (!state.bestSolution || state.bestSolution.tour.length === 0) {
-      addLog('No hay solución para animar. Ejecute ACO primero.', 'error');
-      return;
-    }
-
-    const tour = state.bestSolution.tour;
-    const routePolylines = state.routePolylines;
-
-    // Build full path for animation
-    const fullPath: google.maps.LatLngLiteral[] = [];
-    for (let i = 0; i < tour.length; i++) {
-      const from = tour[i];
-      const to = tour[(i + 1) % tour.length];
-      const edgeKey = `${from}_${to}`;
-      const reverseKey = `${to}_${from}`;
-      const path = routePolylines[edgeKey] || routePolylines[reverseKey];
-      
-      if (path) {
-        const shouldReverse = !routePolylines[edgeKey] && routePolylines[reverseKey];
-        const orderedPath = shouldReverse ? [...path].reverse() : path;
-        fullPath.push(...orderedPath);
-      }
-    }
-
-    // Animate ant along path
-    const animationDuration = 5000 / speed; // 5 seconds base
-    const stepDuration = animationDuration / fullPath.length;
-
-    for (let i = 0; i < fullPath.length; i++) {
-      setAnimatedAntPosition(fullPath[i]);
-      await new Promise(resolve => setTimeout(resolve, stepDuration));
-    }
-
-    setAnimatedAntPosition(null);
-  }, [state.bestSolution, state.routePolylines, speed, addLog]);
-
-  const handleShowBest = useCallback(() => {
-    if (!state.bestSolution) {
-      addLog('No hay mejor ruta. Ejecute ACO primero.', 'error');
-      return;
-    }
-    setShowBestRoute(true);
-    setShowPheromoneMap(false);
-    addLog(`Mostrando mejor ruta: ${Math.round(state.bestSolution.length)}m`, 'success');
-  }, [state.bestSolution, addLog]);
+    
+    return result;
+  }, [ejecutarACO, params, speed, clearTrails]);
 
   const handleRunNN = useCallback(() => {
-    const result = runNearestNeighborHeuristic();
-    if (result) {
-      addLog(`Vecino más cercano completado: ${Math.round(result.length)}m`, 'info');
+    if (state.distanceMatrix.length === 0) {
+      addLog('Error: Primero construya la matriz de distancias', 'error');
+      return null;
     }
-  }, [runNearestNeighborHeuristic, addLog]);
 
-  const handleRun2Opt = useCallback(() => {
-    const result = run2OptHeuristic();
-    if (result) {
-      addLog(`2-opt completado: ${Math.round(result.length)}m`, 'success');
-    }
-  }, [run2OptHeuristic, addLog]);
+    const result = runNearestNeighbor(state.distanceMatrix, 0);
+    setNnSolution(result);
+    addLog(`Vecino mas cercano: ${Math.round(result.length)}m`, 'info');
+    return result;
+  }, [state.distanceMatrix, addLog]);
+
+  const handleAnimateRoute = useCallback(async (
+    algorithm: 'aco' | 'nn',
+    tour: number[],
+    color: string
+  ) => {
+    stopAnimation();
+    setShowBestRoute(true);
+    setBestRouteColor(color);
+    
+    const emoji = algorithm === 'aco' ? '\uD83D\uDC1C' : '\uD83D\uDC1D';
+    const id = `${algorithm}-ant`;
+    
+    addLog(`Animando ruta ${algorithm.toUpperCase()}...`, 'info');
+    
+    await animateSingleAnt(tour, color, emoji, id);
+    
+    addLog(`Animacion ${algorithm.toUpperCase()} completada`, 'success');
+  }, [animateSingleAnt, stopAnimation, addLog]);
+
+  const handleReset = useCallback(() => {
+    stopAnimation();
+    clearTrails();
+    setMatrixProgress(0);
+    setNnSolution(null);
+    setShowBestRoute(false);
+    reset();
+  }, [reset, stopAnimation, clearTrails]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col lg:flex-row">
-      <Sidebar
-        onBuildMatrix={handleBuildMatrix}
-        onRunACO={handleRunACO}
-        onAnimateACO={handleAnimateACO}
-        onShowBest={handleShowBest}
-        onTogglePause={togglePause}
-        onExport={exportResults}
-        onStepMode={setStepMode}
-        onStepNext={advanceStep}
-        onStepAuto={() => {
-          // Auto-advance steps
-          const interval = setInterval(() => {
-            advanceStep();
-          }, 500 / speed);
-          setTimeout(() => clearInterval(interval), 30000);
-        }}
-        onStepReset={reset}
-        onRunNN={handleRunNN}
-        onRun2Opt={handleRun2Opt}
-        onParamsChange={setParams}
-        onSpeedChange={setSpeed}
-        onShowFallbacksChange={setShowFallbacks}
-        isRunning={state.isRunning}
-        isPaused={state.isPaused}
-        isStepMode={state.isStepMode}
-        logs={state.logs}
-        metrics={state.metrics}
-        progress={state.isRunning ? state.progress : buildProgress}
-        currentProbabilities={state.currentProbabilities}
-        nodeOrder={state.nodeOrder}
-      />
+    <div className="h-[calc(100vh-64px)] flex flex-col lg:flex-row overflow-hidden bg-background">
+      {/* Left Panel - Wizard */}
+      <div className="w-full lg:w-[380px] h-[40vh] lg:h-full border-b lg:border-b-0 lg:border-r border-border overflow-hidden flex flex-col">
+        <SimulatorWizard
+          onBuildMatrix={handleBuildMatrix}
+          onRunACO={handleRunACO}
+          onRunNN={handleRunNN}
+          onAnimateRoute={handleAnimateRoute}
+          onReset={handleReset}
+          onParamsChange={setParams}
+          onSpeedChange={setSpeed}
+          isRunning={state.isRunning}
+          isPaused={state.isPaused}
+          onTogglePause={togglePause}
+          logs={state.logs}
+          metrics={state.metrics}
+          matrixProgress={matrixProgress}
+          acoProgress={state.progress}
+          bestSolution={state.bestSolution}
+          nnSolution={nnSolution}
+          nodeOrder={state.nodeOrder}
+        />
+      </div>
       
-      <div className="flex-1 p-4 space-y-4">
-        <div id="map" className="h-[60vh] lg:h-[70vh]">
-          <MapView
+      {/* Right Panel - Map and Chart */}
+      <div className="flex-1 flex flex-col h-[60vh] lg:h-full overflow-hidden">
+        {/* Map */}
+        <div className="flex-1 p-3 min-h-0">
+          <EnhancedMapView
             nodeOrder={state.nodeOrder.length > 0 ? state.nodeOrder : predefinedPlaces}
             routePolylines={state.routePolylines}
             fallbackEdges={state.fallbackEdges}
-            showFallbacks={showFallbacks}
             pheromone={state.pheromone}
-            bestSolution={state.bestSolution}
+            bestSolution={showBestRoute ? state.bestSolution : null}
             showPheromoneMap={showPheromoneMap}
             showBestRoute={showBestRoute}
-            animatedAntPosition={animatedAntPosition}
-            isFullscreen={isFullscreen}
+            bestRouteColor={bestRouteColor}
+            animatedAnts={animatedAnts}
+            swarmAnts={swarmAnts}
+            pheromoneTrails={pheromoneTrails}
           />
         </div>
         
+        {/* Bottom Stats */}
         {state.bestPerIteration.length > 0 && (
-          <ConvergenceChart data={state.bestPerIteration} />
+          <div className="p-3 pt-0 flex gap-3 items-end">
+            <MiniConvergenceChart 
+              data={state.bestPerIteration} 
+              width={280} 
+              height={80} 
+            />
+            
+            <div className="flex-1 grid grid-cols-3 gap-2">
+              <div className="bg-card/50 rounded-lg p-2 border border-border/50">
+                <div className="text-[10px] text-muted-foreground">Iteracion</div>
+                <div className="font-mono font-bold text-sm">{state.metrics.currentIteration}</div>
+              </div>
+              <div className="bg-card/50 rounded-lg p-2 border border-border/50">
+                <div className="text-[10px] text-muted-foreground">Mejor ACO</div>
+                <div className="font-mono font-bold text-sm text-secondary">
+                  {state.bestSolution ? `${Math.round(state.bestSolution.length)}m` : '-'}
+                </div>
+              </div>
+              <div className="bg-card/50 rounded-lg p-2 border border-border/50">
+                <div className="text-[10px] text-muted-foreground">Mejor NN</div>
+                <div className="font-mono font-bold text-sm text-amber-500">
+                  {nnSolution ? `${Math.round(nnSolution.length)}m` : '-'}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

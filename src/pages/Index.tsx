@@ -3,8 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TheorySection } from '@/components/TheorySection';
 import { SimulatorSection } from '@/components/SimulatorSection';
 import { Button } from '@/components/ui/button';
-import { BookOpen, Map, Github } from 'lucide-react';
-import { GOOGLE_MAPS_API_KEY, MAP_ID } from '@/lib/maps-constants';
+import { BookOpen, Map, Bug } from 'lucide-react';
 
 type ActiveTab = 'theory' | 'simulator';
 
@@ -12,52 +11,47 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('theory');
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Fixed Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <header className="flex-shrink-0 h-16 bg-background/80 backdrop-blur-md border-b border-border z-50">
+        <div className="h-full max-w-full px-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🐜</span>
             <h1 className="font-bold text-lg text-foreground hidden sm:block">
-              ACO Simulator
+              ACO-TSP ESPOL
             </h1>
           </div>
           
-          <nav className="flex items-center gap-2">
+          <nav className="flex items-center gap-1">
             <Button
-              variant="ghost"
-              className={`nav-tab ${activeTab === 'theory' ? 'active' : ''}`}
+              variant={activeTab === 'theory' ? 'default' : 'ghost'}
+              size="sm"
               onClick={() => setActiveTab('theory')}
+              className="gap-2"
             >
-              <BookOpen className="w-4 h-4 mr-2" />
-              Teoría
+              <BookOpen className="w-4 h-4" />
+              <span className="hidden sm:inline">Teoria</span>
             </Button>
             <Button
               id="to-app"
-              variant="ghost"
-              className={`nav-tab ${activeTab === 'simulator' ? 'active' : ''}`}
+              variant={activeTab === 'simulator' ? 'default' : 'ghost'}
+              size="sm"
               onClick={() => setActiveTab('simulator')}
+              className="gap-2"
             >
-              <Map className="w-4 h-4 mr-2" />
-              Simulador
+              <Bug className="w-4 h-4" />
+              <span className="hidden sm:inline">Simulador</span>
             </Button>
           </nav>
           
-          <div className="hidden sm:flex items-center gap-2">
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Github className="w-5 h-5" />
-            </a>
+          <div className="text-xs text-muted-foreground hidden md:block">
+            Rutas peatonales reales
           </div>
         </div>
       </header>
       
-      {/* Main Content */}
-      <main className="pt-16">
+      {/* Main Content - fills remaining height */}
+      <main className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait">
           {activeTab === 'theory' ? (
             <motion.div
@@ -65,7 +59,8 @@ const Index = () => {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2 }}
+              className="h-full overflow-auto"
             >
               <TheorySection onGoToSimulator={() => setActiveTab('simulator')} />
             </motion.div>
@@ -75,29 +70,14 @@ const Index = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
             >
               <SimulatorSection />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
-      
-      {/* Footer */}
-      <footer className="border-t border-border py-4 px-4 bg-muted/30">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-          <p>
-            Simulador ACO-TSP para ESPOL | Rutas peatonales reales
-          </p>
-          <div className="flex items-center gap-4">
-            <span className="font-mono">API Key: {GOOGLE_MAPS_API_KEY.slice(0, 10)}...</span>
-            <span className="font-mono">Map ID: {MAP_ID.slice(0, 10)}...</span>
-          </div>
-          <p className="text-destructive/70">
-            ⚠️ Las credenciales son para pruebas locales únicamente
-          </p>
-        </div>
-      </footer>
     </div>
   );
 };

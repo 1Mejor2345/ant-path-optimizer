@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo } from 'react';
-import { GoogleMap, useJsApiLoader, Polyline, Marker } from '@react-google-maps/api';
-import { GOOGLE_MAPS_API_KEY, MAP_ID, CAMPUS_CENTER, type PredefinedPlace } from '@/lib/maps-constants';
+import { GoogleMap, Polyline, Marker } from '@react-google-maps/api';
+import { CAMPUS_CENTER, type PredefinedPlace } from '@/lib/maps-constants';
+import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
 
 interface MapViewProps {
   nodeOrder: PredefinedPlace[];
@@ -21,8 +22,6 @@ const containerStyle = {
   minHeight: '500px'
 };
 
-const libraries: ("marker" | "places" | "geometry")[] = ["marker"];
-
 export function MapView({
   nodeOrder,
   routePolylines,
@@ -35,12 +34,7 @@ export function MapView({
   animatedAntPosition,
   isFullscreen
 }: MapViewProps) {
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
-    libraries,
-    mapIds: [MAP_ID]
-  });
-
+  const { isLoaded, loadError } = useGoogleMaps();
   const mapRef = useRef<google.maps.Map | null>(null);
 
   const onLoad = (map: google.maps.Map) => {
@@ -207,7 +201,6 @@ export function MapView({
         zoom={16}
         onLoad={onLoad}
         options={{
-          mapId: MAP_ID,
           disableDefaultUI: false,
           zoomControl: true,
           mapTypeControl: false,

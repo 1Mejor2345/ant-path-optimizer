@@ -4,17 +4,10 @@ import { Sidebar } from './Sidebar';
 import { ConvergenceChart } from './ConvergenceChart';
 import { useACOSimulator } from '@/hooks/useACOSimulator';
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
-import { useJsApiLoader } from '@react-google-maps/api';
-import { GOOGLE_MAPS_API_KEY } from '@/lib/maps-constants';
-
-const libraries: ("marker" | "places" | "geometry")[] = ["marker"];
+import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
 
 export function SimulatorSection() {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
-    libraries
-  });
-
+  const { isLoaded } = useGoogleMaps();
   const directionsServiceRef = useRef<google.maps.DirectionsService | null>(null);
   
   const {

@@ -33,9 +33,12 @@ export function SimulatorSection() {
     animatedAnts,
     swarmAnts,
     pheromoneTrails,
+    activePaths,
     animateSingleAnt,
+    animateSwarm,
     stopAnimation,
-    clearTrails
+    clearTrails,
+    clearPaths
   } = useAntAnimation({
     routePolylines: state.routePolylines,
     nodeOrder: state.nodeOrder,
@@ -74,12 +77,45 @@ export function SimulatorSection() {
     setShowBestRoute(false);
     setShowPheromoneMap(true);
     clearTrails();
+    clearPaths();
+    
+    // Keep track of all solutions per iteration
+    let allSolutions: Array<{ tour: number[]; length: number }> = [];
+    let currentIteration = 0;
     
     const result = await ejecutarACO(
       params,
       speed,
-      (iteration, best) => {
-        // Iteration callback
+      (iteration, best, solutions) => {
+        // Store solutions from current iteration
+        allSolutions = solutions;
+        currentIteration = iteration;
+        
+        // Create getTourForAnt function for animation
+        const getTourForAnt = (iter: number, antIdx: number) => {
+          if (iter === currentIteration - 1 && antIdx < allSolutions.length) {
+            return allSolutions[antIdx].tour;
+          }
+          return [];
+        };
+        
+        // Animate swarm for this iteration
+        if (iteration === 1 && solutions.length > 0) {
+          // Start swarm animation from first iteration
+          animateSwarm(
+            params.iteraciones,
+            params.numHormigas,
+            (iter, antIdx) => {
+              // Return a valid tour if within bounds
+              if (antIdx < solutions.length) {
+                return solutions[antIdx].tour;
+              }
+              return solutions[0]?.tour || [];
+            },
+            state.pheromone,
+            () => {}
+          );
+        }
       },
       (ant, probs) => {
         // Step callback
@@ -87,7 +123,7 @@ export function SimulatorSection() {
     );
     
     return result;
-  }, [ejecutarACO, params, speed, clearTrails]);
+  }, [ejecutarACO, params, speed, clearTrails, clearPaths, animateSwarm, state.pheromone]);
 
   const handleRunNN = useCallback(() => {
     if (state.distanceMatrix.length === 0) {
@@ -106,28 +142,28 @@ export function SimulatorSection() {
     tour: number[],
     color: string
   ) => {
-    stopAnimation();
-    setShowBestRoute(true);
-    setBestRouteColor(color);
+    // Don't stop other animations, allow concurrent animations
+    setShowBestRoute(false);
     
     const emoji = algorithm === 'aco' ? '\uD83D\uDC1C' : '\uD83D\uDC1D';
-    const id = `${algorithm}-ant`;
+    const id = `${algorithm}-ant-${Date.now()}`;
     
     addLog(`Animando ruta ${algorithm.toUpperCase()}...`, 'info');
     
-    await animateSingleAnt(tour, color, emoji, id);
+    await animateSingleAnt(tour, color, emoji, id, algorithm);
     
     addLog(`Animacion ${algorithm.toUpperCase()} completada`, 'success');
-  }, [animateSingleAnt, stopAnimation, addLog]);
+  }, [animateSingleAnt, addLog]);
 
   const handleReset = useCallback(() => {
     stopAnimation();
     clearTrails();
+    clearPaths();
     setMatrixProgress(0);
     setNnSolution(null);
     setShowBestRoute(false);
     reset();
-  }, [reset, stopAnimation, clearTrails]);
+  }, [reset, stopAnimation, clearTrails, clearPaths]);
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col lg:flex-row overflow-hidden bg-background">
@@ -170,6 +206,7 @@ export function SimulatorSection() {
             animatedAnts={animatedAnts}
             swarmAnts={swarmAnts}
             pheromoneTrails={pheromoneTrails}
+            activePaths={activePaths}
           />
         </div>
         

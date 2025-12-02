@@ -7,6 +7,14 @@ export interface AnimatedAnt {
   color: string;
   emoji: string;
   rotation?: number;
+  scale?: number;
+}
+
+export interface AnimatedPath {
+  tour: number[];
+  color: string;
+  emoji: string;
+  algorithm: 'aco' | 'nn';
 }
 
 export interface PheromoneTrail {
@@ -24,9 +32,11 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
   const [animatedAnts, setAnimatedAnts] = useState<AnimatedAnt[]>([]);
   const [swarmAnts, setSwarmAnts] = useState<AnimatedAnt[]>([]);
   const [pheromoneTrails, setPheromoneTrails] = useState<PheromoneTrail[]>([]);
+  const [activePaths, setActivePaths] = useState<AnimatedPath[]>([]);
   const animationRef = useRef<boolean>(false);
   const pausedRef = useRef<boolean>(false);
   const speedRef = useRef(speed);
+  const activeAnimationsRef = useRef<Set<string>>(new Set());
 
   speedRef.current = speed;
 
@@ -64,15 +74,30 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     tour: number[],
     color: string,
     emoji: string,
-    id: string
+    id: string,
+    algorithm: 'aco' | 'nn' = 'aco'
   ): Promise<void> => {
     const fullPath = getFullPath(tour);
     if (fullPath.length === 0) return;
 
+    // Check if this animation is already running
+    if (activeAnimationsRef.current.has(id)) {
+      return;
+    }
+
+    activeAnimationsRef.current.add(id);
     animationRef.current = true;
     
+    // Add this path to active paths for polyline rendering
+    setActivePaths(prev => [...prev.filter(p => p.algorithm !== algorithm), { 
+      tour, 
+      color, 
+      emoji, 
+      algorithm 
+    }]);
+    
     const antId = id;
-    const baseDuration = 8000;
+    const baseDuration = 6000; // Faster animation
     const stepDuration = baseDuration / fullPath.length;
 
     for (let i = 0; i < fullPath.length && animationRef.current; i++) {
@@ -86,26 +111,34 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
       const nextPosition = fullPath[Math.min(i + 1, fullPath.length - 1)];
       const rotation = calculateRotation(position, nextPosition);
 
-      setAnimatedAnts([{
-        id: antId,
-        position,
-        color,
-        emoji,
-        rotation
-      }]);
+      setAnimatedAnts(prev => {
+        const filtered = prev.filter(a => a.id !== antId);
+        return [...filtered, {
+          id: antId,
+          position,
+          color,
+          emoji,
+          rotation,
+          scale: 1.2
+        }];
+      });
 
       await new Promise(resolve => setTimeout(resolve, stepDuration / speedRef.current));
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setAnimatedAnts([]);
-    animationRef.current = false;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    setAnimatedAnts(prev => prev.filter(a => a.id !== antId));
+    activeAnimationsRef.current.delete(id);
+    if (activeAnimationsRef.current.size === 0) {
+      animationRef.current = false;
+    }
   }, [routePolylines]);
 
   const animateSwarm = useCallback(async (
     iterations: number,
     numAnts: number,
     getTourForAnt: (iteration: number, antIndex: number) => number[],
+    pheromoneMatrix: number[][] | null,
     onIterationComplete?: (iteration: number) => void
   ): Promise<void> => {
     animationRef.current = true;
@@ -120,12 +153,14 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
 
       const antPromises = [];
       
+      // More ants per iteration for better visualization
       for (let antIdx = 0; antIdx < numAnts; antIdx++) {
         const tour = getTourForAnt(iter, antIdx);
         const fullPath = getFullPath(tour);
         
         if (fullPath.length === 0) continue;
 
+        // Track edge usage
         for (let i = 0; i < tour.length; i++) {
           const from = tour[i];
           const to = tour[(i + 1) % tour.length];
@@ -134,15 +169,30 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
         }
 
         const antId = `swarm-${iter}-${antIdx}`;
-        const hue = (antIdx * 30) % 360;
+        
+        // Color based on pheromone preference
+        let avgPheromone = 0;
+        if (pheromoneMatrix) {
+          for (let i = 0; i < tour.length; i++) {
+            const from = tour[i];
+            const to = tour[(i + 1) % tour.length];
+            avgPheromone += pheromoneMatrix[from][to];
+          }
+          avgPheromone /= tour.length;
+        }
+        
+        // Green for high pheromone, yellow/orange for low
+        const hue = 40 + avgPheromone * 80; // 40 (orange) to 120 (green)
+        const color = `hsl(${hue}, 80%, 50%)`;
         
         antPromises.push(
-          animateAntQuickly(fullPath, antId, `hsl(${hue}, 70%, 50%)`, antIdx)
+          animateAntQuickly(fullPath, antId, color, antIdx, iter, iterations)
         );
       }
 
       await Promise.all(antPromises);
 
+      // Update pheromone trails
       const maxUsage = Math.max(...Object.values(edgeUsage), 1);
       const newTrails: PheromoneTrail[] = [];
       
@@ -163,7 +213,8 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
         onIterationComplete(iter + 1);
       }
 
-      await new Promise(resolve => setTimeout(resolve, 200 / speedRef.current));
+      // Faster iterations
+      await new Promise(resolve => setTimeout(resolve, 150 / speedRef.current));
     }
 
     setSwarmAnts([]);
@@ -174,11 +225,17 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     path: google.maps.LatLngLiteral[],
     id: string,
     color: string,
-    index: number
+    index: number,
+    iteration: number,
+    totalIterations: number
   ): Promise<void> => {
     const emoji = '\uD83D\uDC1C';
-    const stepSize = Math.max(1, Math.floor(path.length / 20));
-    const stepDuration = 50;
+    // Much smaller steps for smoother, faster animation
+    const stepSize = Math.max(1, Math.floor(path.length / 40));
+    const stepDuration = 30; // Faster
+    
+    // Scale gets smaller as iterations progress (convergence effect)
+    const baseScale = 0.5 + (0.5 * (1 - iteration / totalIterations));
 
     for (let i = 0; i < path.length && animationRef.current; i += stepSize) {
       const position = path[i];
@@ -187,7 +244,14 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
 
       setSwarmAnts(prev => {
         const existing = prev.filter(a => a.id !== id);
-        return [...existing, { id, position, color, emoji, rotation }];
+        return [...existing, { 
+          id, 
+          position, 
+          color, 
+          emoji, 
+          rotation,
+          scale: baseScale 
+        }];
       });
 
       await new Promise(resolve => setTimeout(resolve, stepDuration / speedRef.current));
@@ -198,8 +262,10 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
 
   const stopAnimation = useCallback(() => {
     animationRef.current = false;
+    activeAnimationsRef.current.clear();
     setAnimatedAnts([]);
     setSwarmAnts([]);
+    setActivePaths([]);
   }, []);
 
   const pauseAnimation = useCallback(() => {
@@ -214,16 +280,22 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     setPheromoneTrails([]);
   }, []);
 
+  const clearPaths = useCallback(() => {
+    setActivePaths([]);
+  }, []);
+
   return {
     animatedAnts,
     swarmAnts,
     pheromoneTrails,
+    activePaths,
     animateSingleAnt,
     animateSwarm,
     stopAnimation,
     pauseAnimation,
     resumeAnimation,
     clearTrails,
+    clearPaths,
     isAnimating: animationRef.current
   };
 }

@@ -207,7 +207,7 @@ export function useACOSimulator() {
   const ejecutarACO = useCallback(async (
     params: ACOParams,
     speedMultiplier: number = 1,
-    onIterationComplete?: (iteration: number, best: number) => void,
+    onIterationComplete?: (iteration: number, best: number, solutions: Array<{ tour: number[]; length: number }>) => void,
     onAntStep?: (ant: Hormiga, probs: ProbabilityInfo[]) => void
   ) => {
     const { distanceMatrix, nodeOrder } = state;
@@ -315,7 +315,7 @@ export function useACOSimulator() {
       });
 
       if (onIterationComplete) {
-        onIterationComplete(iter + 1, iterBest.length);
+        onIterationComplete(iter + 1, iterBest.length, solutions);
       }
     }
 

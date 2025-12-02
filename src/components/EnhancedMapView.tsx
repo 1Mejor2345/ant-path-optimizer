@@ -2,14 +2,7 @@ import { useEffect, useRef, useMemo, useState } from 'react';
 import { GoogleMap, Polyline, Marker, OverlayView } from '@react-google-maps/api';
 import { CAMPUS_CENTER, MAP_ID, type PredefinedPlace } from '@/lib/maps-constants';
 import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
-
-export interface AnimatedAnt {
-  id: string;
-  position: google.maps.LatLngLiteral;
-  color: string;
-  emoji: string;
-  rotation?: number;
-}
+import { type AnimatedAnt, type AnimatedPath } from '@/hooks/useAntAnimation';
 
 interface EnhancedMapViewProps {
   nodeOrder: PredefinedPlace[];
@@ -26,6 +19,7 @@ interface EnhancedMapViewProps {
     path: google.maps.LatLngLiteral[];
     intensity: number;
   }>;
+  activePaths: AnimatedPath[];
 }
 
 const containerStyle = {
@@ -44,7 +38,8 @@ export function EnhancedMapView({
   bestRouteColor = '#10b981',
   animatedAnts,
   swarmAnts,
-  pheromoneTrails
+  pheromoneTrails,
+  activePaths
 }: EnhancedMapViewProps) {
   const { isLoaded, loadError } = useGoogleMaps();
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -129,15 +124,9 @@ export function EnhancedMapView({
     ));
   }, [pheromoneTrails]);
 
-  // Render best route
-  const bestRoutePolyline = useMemo(() => {
-    if (!showBestRoute || !bestSolution || bestSolution.tour.length === 0) {
-      return null;
-    }
-
+  // Helper to get full path for a tour
+  const getFullPathForTour = (tour: number[]) => {
     const fullPath: google.maps.LatLngLiteral[] = [];
-    const tour = bestSolution.tour;
-
     for (let i = 0; i < tour.length; i++) {
       const from = tour[i];
       const to = tour[(i + 1) % tour.length];
@@ -151,6 +140,55 @@ export function EnhancedMapView({
         fullPath.push(...orderedPath);
       }
     }
+    return fullPath;
+  };
+
+  // Render animated paths with arrows
+  const animatedPathPolylines = useMemo(() => {
+    if (activePaths.length === 0) return null;
+
+    return activePaths.map((pathData, idx) => {
+      const fullPath = getFullPathForTour(pathData.tour);
+      if (fullPath.length === 0) return null;
+
+      // Define arrow symbols
+      const arrowSymbol = {
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        scale: 3,
+        strokeColor: pathData.color,
+        strokeWeight: 2,
+        fillColor: pathData.color,
+        fillOpacity: 1
+      };
+
+      return (
+        <Polyline
+          key={`animated-path-${pathData.algorithm}-${idx}`}
+          path={fullPath}
+          options={{
+            strokeColor: pathData.color,
+            strokeOpacity: 0.9,
+            strokeWeight: 6,
+            geodesic: true,
+            zIndex: 150,
+            icons: [{
+              icon: arrowSymbol,
+              offset: '0',
+              repeat: '80px'
+            }]
+          }}
+        />
+      );
+    });
+  }, [activePaths, routePolylines]);
+
+  // Render best route (legacy support)
+  const bestRoutePolyline = useMemo(() => {
+    if (!showBestRoute || !bestSolution || bestSolution.tour.length === 0) {
+      return null;
+    }
+
+    const fullPath = getFullPathForTour(bestSolution.tour);
 
     return (
       <Polyline
@@ -223,7 +261,10 @@ export function EnhancedMapView({
         {/* Pheromone edges */}
         {pheromoneEdges}
 
-        {/* Best route */}
+        {/* Animated paths with arrows */}
+        {animatedPathPolylines}
+
+        {/* Best route (legacy) */}
         {bestRoutePolyline}
 
         {/* Node markers with NAMES */}
@@ -256,10 +297,11 @@ export function EnhancedMapView({
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
           >
             <div 
-              className="transform -translate-x-1/2 -translate-y-1/2 text-2xl transition-all duration-75"
+              className="transform -translate-x-1/2 -translate-y-1/2 transition-all duration-75"
               style={{ 
-                transform: `translate(-50%, -50%) rotate(${ant.rotation || 0}deg)`,
-                filter: `drop-shadow(0 2px 4px rgba(0,0,0,0.3))`
+                transform: `translate(-50%, -50%) rotate(${ant.rotation || 0}deg) scale(${ant.scale || 0.6})`,
+                filter: `drop-shadow(0 1px 2px ${ant.color})`,
+                fontSize: '16px'
               }}
             >
               {ant.emoji}
@@ -276,18 +318,19 @@ export function EnhancedMapView({
           >
             <div className="relative transform -translate-x-1/2 -translate-y-1/2">
               <div 
-                className="text-3xl transition-all duration-100"
+                className="transition-all duration-100"
                 style={{ 
-                  transform: `rotate(${ant.rotation || 0}deg)`,
-                  filter: `drop-shadow(0 3px 6px ${ant.color}50)`
+                  transform: `rotate(${ant.rotation || 0}deg) scale(${ant.scale || 1})`,
+                  filter: `drop-shadow(0 4px 8px ${ant.color}80)`,
+                  fontSize: '32px'
                 }}
               >
                 {ant.emoji}
               </div>
               {/* Trail glow effect */}
               <div 
-                className="absolute inset-0 rounded-full blur-md opacity-40 -z-10"
-                style={{ backgroundColor: ant.color, transform: 'scale(1.5)' }}
+                className="absolute inset-0 rounded-full blur-lg opacity-50 -z-10 animate-pulse"
+                style={{ backgroundColor: ant.color, transform: 'scale(2)' }}
               />
             </div>
           </OverlayView>

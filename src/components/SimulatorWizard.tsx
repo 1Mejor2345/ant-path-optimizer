@@ -495,8 +495,8 @@ export function SimulatorWizard({
 
       {/* Algorithm Animations */}
       <div className="space-y-3">
-        {/* ACO Animation */}
-        <div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg p-4 border border-primary/30">
+          {/* ACO Animation */}
+        <div className="bg-gradient-to-r from-blue-500/10 to-blue-500/5 rounded-lg p-4 border border-blue-500/30">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-2xl">🐜</span>
@@ -509,12 +509,12 @@ export function SimulatorWizard({
                 )}
               </div>
             </div>
-            <Badge className="bg-primary">Hormiga Roja</Badge>
+            <Badge className="bg-blue-500">Hormiga Azul</Badge>
           </div>
           <Button 
-            onClick={() => bestSolution && onAnimateRoute('aco', bestSolution.tour, '#ef4444')}
+            onClick={() => bestSolution && onAnimateRoute('aco', bestSolution.tour, '#3b82f6')}
             disabled={!bestSolution}
-            className="w-full"
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white"
             variant="default"
           >
             <Play className="w-4 h-4 mr-2" />

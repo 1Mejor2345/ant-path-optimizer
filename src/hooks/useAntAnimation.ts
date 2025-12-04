@@ -65,10 +65,15 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
 
   speedRef.current = speed;
 
+  // Calculate rotation so emoji faces direction of movement
+  // Emojis 🐜🐝 naturally face LEFT, so we adjust accordingly
   const calculateRotation = (from: google.maps.LatLngLiteral, to: google.maps.LatLngLiteral): number => {
     const dx = to.lng - from.lng;
     const dy = to.lat - from.lat;
-    return Math.atan2(dx, dy) * (180 / Math.PI);
+    // atan2(dy, dx) gives angle from positive X-axis (east)
+    // We add 180 because emoji faces left by default
+    const angle = Math.atan2(-dy, dx) * (180 / Math.PI) + 180;
+    return angle;
   };
 
   const getPathForEdge = (from: number, to: number): google.maps.LatLngLiteral[] => {
@@ -207,6 +212,7 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
         path: google.maps.LatLngLiteral[];
         tour: number[];
         avgPheromone: number;
+        antIdx: number;
       }> = [];
 
       for (let antIdx = 0; antIdx < numAnts; antIdx++) {
@@ -234,11 +240,23 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
           avgPheromone /= tour.length;
         }
 
-        antPaths.push({ path: fullPath, tour, avgPheromone });
+        antPaths.push({ path: fullPath, tour, avgPheromone, antIdx });
+      }
+
+      // Show dots immediately before animation starts
+      if (antPaths.length > 0) {
+        const initialDots: SwarmDot[] = antPaths.map((antData) => ({
+          id: `swarm-${iter}-${antData.antIdx}`,
+          position: antData.path[0],
+          color: 'hsl(30, 85%, 50%)',
+          size: 8,
+          opacity: 0.9
+        }));
+        setSwarmDots(initialDots);
       }
 
       // Animate all ants simultaneously as small dots
-      const iterationDuration = 400 / speedRef.current;
+      const iterationDuration = 500 / speedRef.current;
       const startTime = performance.now();
 
       await new Promise<void>((resolve) => {
@@ -254,7 +272,7 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
 
           const newDots: SwarmDot[] = [];
 
-          antPaths.forEach((antData, antIdx) => {
+          antPaths.forEach((antData) => {
             const pathProgress = progress * (antData.path.length - 1);
             const currentIndex = Math.floor(pathProgress);
             const nextIndex = Math.min(currentIndex + 1, antData.path.length - 1);
@@ -264,18 +282,18 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
             const nextPos = antData.path[nextIndex];
             const position = lerpPosition(currentPos, nextPos, segmentProgress);
 
-            // Color based on pheromone: orange → green
+            // Color based on pheromone: orange → green (more pheromone = greener)
             const normalizedPheromone = pheromoneMatrix 
-              ? Math.min(antData.avgPheromone / 5, 1) 
+              ? Math.min(antData.avgPheromone / 3, 1) 
               : iter / iterations;
-            const hue = 30 + normalizedPheromone * 90; // 30 (orange) → 120 (green)
+            const hue = 25 + normalizedPheromone * 95; // 25 (orange-red) → 120 (green)
             
             newDots.push({
-              id: `swarm-${iter}-${antIdx}`,
+              id: `swarm-${iter}-${antData.antIdx}`,
               position,
-              color: `hsl(${hue}, 85%, 50%)`,
-              size: 6 + normalizedPheromone * 4,
-              opacity: 0.7 + normalizedPheromone * 0.3
+              color: `hsl(${hue}, 90%, 50%)`,
+              size: 7 + normalizedPheromone * 5, // Bigger dots for better visibility
+              opacity: 0.85
             });
           });
 

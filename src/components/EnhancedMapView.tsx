@@ -1,8 +1,8 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
-import { GoogleMap, Polyline, Marker, OverlayView } from '@react-google-maps/api';
+import { useEffect, useRef, useMemo } from 'react';
+import { GoogleMap, Polyline, OverlayView } from '@react-google-maps/api';
 import { CAMPUS_CENTER, MAP_ID, type PredefinedPlace } from '@/lib/maps-constants';
 import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
-import { type AnimatedAnt, type AnimatedPath } from '@/hooks/useAntAnimation';
+import { type AnimatedAnt, type AnimatedPath, type SwarmDot } from '@/hooks/useAntAnimation';
 
 interface EnhancedMapViewProps {
   nodeOrder: PredefinedPlace[];
@@ -14,7 +14,7 @@ interface EnhancedMapViewProps {
   showBestRoute: boolean;
   bestRouteColor?: string;
   animatedAnts: AnimatedAnt[];
-  swarmAnts: AnimatedAnt[];
+  swarmDots: SwarmDot[];
   pheromoneTrails: Array<{
     path: google.maps.LatLngLiteral[];
     intensity: number;
@@ -37,7 +37,7 @@ export function EnhancedMapView({
   showBestRoute,
   bestRouteColor = '#10b981',
   animatedAnts,
-  swarmAnts,
+  swarmDots,
   pheromoneTrails,
   activePaths
 }: EnhancedMapViewProps) {
@@ -117,7 +117,7 @@ export function EnhancedMapView({
         options={{
           strokeColor: `hsl(${120 + trail.intensity * 60}, 70%, ${45 + trail.intensity * 15}%)`,
           strokeOpacity: 0.4 + trail.intensity * 0.4,
-          strokeWeight: 2 + trail.intensity * 4,
+          strokeWeight: 2 + trail.intensity * 6,
           geodesic: true
         }}
       />
@@ -154,7 +154,7 @@ export function EnhancedMapView({
       // Define arrow symbols
       const arrowSymbol = {
         path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-        scale: 3,
+        scale: 3.5,
         strokeColor: pathData.color,
         strokeWeight: 2,
         fillColor: pathData.color,
@@ -168,13 +168,13 @@ export function EnhancedMapView({
           options={{
             strokeColor: pathData.color,
             strokeOpacity: 0.9,
-            strokeWeight: 6,
+            strokeWeight: 5,
             geodesic: true,
             zIndex: 150,
             icons: [{
               icon: arrowSymbol,
               offset: '0',
-              repeat: '80px'
+              repeat: '60px'
             }]
           }}
         />
@@ -289,48 +289,59 @@ export function EnhancedMapView({
           </OverlayView>
         ))}
 
-        {/* Swarm ants (multiple during ACO execution) */}
-        {swarmAnts.map((ant) => (
+        {/* Swarm dots (small circles during ACO execution) */}
+        {swarmDots.map((dot) => (
           <OverlayView
-            key={ant.id}
-            position={ant.position}
+            key={dot.id}
+            position={dot.position}
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
           >
             <div 
-              className="transform -translate-x-1/2 -translate-y-1/2 transition-all duration-75"
+              className="rounded-full"
               style={{ 
-                transform: `translate(-50%, -50%) rotate(${ant.rotation || 0}deg) scale(${ant.scale || 0.6})`,
-                filter: `drop-shadow(0 1px 2px ${ant.color})`,
-                fontSize: '16px'
+                width: `${dot.size}px`,
+                height: `${dot.size}px`,
+                backgroundColor: dot.color,
+                opacity: dot.opacity,
+                transform: 'translate(-50%, -50%)',
+                boxShadow: `0 0 ${dot.size}px ${dot.color}`,
+                transition: 'none'
               }}
-            >
-              {ant.emoji}
-            </div>
+            />
           </OverlayView>
         ))}
 
-        {/* Single animated ants (for final route display) */}
+        {/* Single animated ants (for final route display) - smooth movement */}
         {animatedAnts.map((ant) => (
           <OverlayView
             key={ant.id}
             position={ant.position}
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
           >
-            <div className="relative transform -translate-x-1/2 -translate-y-1/2">
+            <div 
+              className="relative"
+              style={{ 
+                transform: 'translate(-50%, -50%)'
+              }}
+            >
               <div 
-                className="transition-all duration-100"
                 style={{ 
                   transform: `rotate(${ant.rotation || 0}deg) scale(${ant.scale || 1})`,
-                  filter: `drop-shadow(0 4px 8px ${ant.color}80)`,
-                  fontSize: '32px'
+                  fontSize: '28px',
+                  filter: `drop-shadow(0 2px 6px ${ant.color})`,
+                  transition: 'none'
                 }}
               >
                 {ant.emoji}
               </div>
-              {/* Trail glow effect */}
+              {/* Glow effect */}
               <div 
-                className="absolute inset-0 rounded-full blur-lg opacity-50 -z-10 animate-pulse"
-                style={{ backgroundColor: ant.color, transform: 'scale(2)' }}
+                className="absolute inset-0 rounded-full blur-md -z-10"
+                style={{ 
+                  backgroundColor: ant.color, 
+                  transform: 'scale(1.8)',
+                  opacity: 0.5
+                }}
               />
             </div>
           </OverlayView>

@@ -62,6 +62,7 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
   const speedRef = useRef(speed);
   const activeAnimationsRef = useRef<Set<string>>(new Set());
   const rafRef = useRef<number | null>(null);
+  const swarmAnimationRef = useRef<number | null>(null);
 
   speedRef.current = speed;
 
@@ -189,7 +190,97 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     });
   }, [routePolylines]);
 
-  // Swarm animation with small dots
+  // Animate swarm dots for a single iteration (called per iteration from ACO)
+  const animateSwarmIteration = useCallback((
+    solutions: Array<{ tour: number[]; length: number }>,
+    iteration: number,
+    totalIterations: number,
+    pheromoneMatrix: number[][] | null
+  ) => {
+    if (solutions.length === 0) return;
+
+    // Prepare all ant paths
+    const antPaths: Array<{
+      path: google.maps.LatLngLiteral[];
+      tour: number[];
+      avgPheromone: number;
+      antIdx: number;
+    }> = [];
+
+    for (let antIdx = 0; antIdx < solutions.length; antIdx++) {
+      const tour = solutions[antIdx].tour;
+      const fullPath = getFullPath(tour);
+      
+      if (fullPath.length === 0) continue;
+
+      // Calculate average pheromone on this path
+      let avgPheromone = 0;
+      if (pheromoneMatrix && pheromoneMatrix.length > 0) {
+        for (let i = 0; i < tour.length; i++) {
+          const from = tour[i];
+          const to = tour[(i + 1) % tour.length];
+          if (pheromoneMatrix[from] && pheromoneMatrix[from][to] !== undefined) {
+            avgPheromone += pheromoneMatrix[from][to];
+          }
+        }
+        avgPheromone /= tour.length;
+      }
+
+      antPaths.push({ path: fullPath, tour, avgPheromone, antIdx });
+    }
+
+    if (antPaths.length === 0) return;
+
+    // Cancel previous swarm animation
+    if (swarmAnimationRef.current) {
+      cancelAnimationFrame(swarmAnimationRef.current);
+    }
+
+    const iterationDuration = 400 / speedRef.current;
+    const startTime = performance.now();
+
+    const animateDots = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / iterationDuration, 1);
+
+      const newDots: SwarmDot[] = [];
+
+      antPaths.forEach((antData) => {
+        const pathProgress = progress * (antData.path.length - 1);
+        const currentIndex = Math.floor(pathProgress);
+        const nextIndex = Math.min(currentIndex + 1, antData.path.length - 1);
+        const segmentProgress = pathProgress - currentIndex;
+
+        const currentPos = antData.path[currentIndex];
+        const nextPos = antData.path[nextIndex];
+        const position = lerpPosition(currentPos, nextPos, segmentProgress);
+
+        // Color based on pheromone: orange → green (more pheromone = greener)
+        const normalizedPheromone = pheromoneMatrix 
+          ? Math.min(antData.avgPheromone / 2, 1) 
+          : iteration / totalIterations;
+        const hue = 25 + normalizedPheromone * 95; // 25 (orange-red) → 120 (green)
+        
+        newDots.push({
+          id: `swarm-${iteration}-${antData.antIdx}`,
+          position,
+          color: `hsl(${hue}, 90%, 55%)`,
+          size: 10 + normalizedPheromone * 6, // Big visible dots
+          opacity: 0.95
+        });
+      });
+
+      setSwarmDots(newDots);
+
+      if (progress < 1) {
+        swarmAnimationRef.current = requestAnimationFrame(animateDots);
+      }
+    };
+
+    swarmAnimationRef.current = requestAnimationFrame(animateDots);
+  }, [routePolylines]);
+
+  // Legacy animateSwarm for backwards compatibility
   const animateSwarm = useCallback(async (
     iterations: number,
     numAnts: number,
@@ -197,152 +288,19 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     pheromoneMatrix: number[][] | null,
     onIterationComplete?: (iteration: number) => void
   ): Promise<void> => {
-    animationRef.current = true;
-    const edgeUsage: Record<string, number> = {};
-
-    for (let iter = 0; iter < iterations && animationRef.current; iter++) {
-      while (pausedRef.current && animationRef.current) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-
-      if (!animationRef.current) break;
-
-      // Prepare all ant paths for this iteration
-      const antPaths: Array<{
-        path: google.maps.LatLngLiteral[];
-        tour: number[];
-        avgPheromone: number;
-        antIdx: number;
-      }> = [];
-
-      for (let antIdx = 0; antIdx < numAnts; antIdx++) {
-        const tour = getTourForAnt(iter, antIdx);
-        const fullPath = getFullPath(tour);
-        
-        if (fullPath.length === 0) continue;
-
-        // Track edge usage for pheromone visualization
-        for (let i = 0; i < tour.length; i++) {
-          const from = tour[i];
-          const to = tour[(i + 1) % tour.length];
-          const edgeKey = `${Math.min(from, to)}_${Math.max(from, to)}`;
-          edgeUsage[edgeKey] = (edgeUsage[edgeKey] || 0) + 1;
-        }
-
-        // Calculate average pheromone on this path
-        let avgPheromone = 0;
-        if (pheromoneMatrix) {
-          for (let i = 0; i < tour.length; i++) {
-            const from = tour[i];
-            const to = tour[(i + 1) % tour.length];
-            avgPheromone += pheromoneMatrix[from][to];
-          }
-          avgPheromone /= tour.length;
-        }
-
-        antPaths.push({ path: fullPath, tour, avgPheromone, antIdx });
-      }
-
-      // Show dots immediately before animation starts
-      if (antPaths.length > 0) {
-        const initialDots: SwarmDot[] = antPaths.map((antData) => ({
-          id: `swarm-${iter}-${antData.antIdx}`,
-          position: antData.path[0],
-          color: 'hsl(30, 85%, 50%)',
-          size: 8,
-          opacity: 0.9
-        }));
-        setSwarmDots(initialDots);
-      }
-
-      // Animate all ants simultaneously as small dots
-      const iterationDuration = 500 / speedRef.current;
-      const startTime = performance.now();
-
-      await new Promise<void>((resolve) => {
-        const animateDots = (currentTime: number) => {
-          if (!animationRef.current) {
-            setSwarmDots([]);
-            resolve();
-            return;
-          }
-
-          const elapsed = currentTime - startTime;
-          const progress = Math.min(elapsed / iterationDuration, 1);
-
-          const newDots: SwarmDot[] = [];
-
-          antPaths.forEach((antData) => {
-            const pathProgress = progress * (antData.path.length - 1);
-            const currentIndex = Math.floor(pathProgress);
-            const nextIndex = Math.min(currentIndex + 1, antData.path.length - 1);
-            const segmentProgress = pathProgress - currentIndex;
-
-            const currentPos = antData.path[currentIndex];
-            const nextPos = antData.path[nextIndex];
-            const position = lerpPosition(currentPos, nextPos, segmentProgress);
-
-            // Color based on pheromone: orange → green (more pheromone = greener)
-            const normalizedPheromone = pheromoneMatrix 
-              ? Math.min(antData.avgPheromone / 3, 1) 
-              : iter / iterations;
-            const hue = 25 + normalizedPheromone * 95; // 25 (orange-red) → 120 (green)
-            
-            newDots.push({
-              id: `swarm-${iter}-${antData.antIdx}`,
-              position,
-              color: `hsl(${hue}, 90%, 50%)`,
-              size: 7 + normalizedPheromone * 5, // Bigger dots for better visibility
-              opacity: 0.85
-            });
-          });
-
-          setSwarmDots(newDots);
-
-          if (progress < 1 && animationRef.current) {
-            requestAnimationFrame(animateDots);
-          } else {
-            resolve();
-          }
-        };
-
-        requestAnimationFrame(animateDots);
-      });
-
-      // Update pheromone trails visualization
-      const maxUsage = Math.max(...Object.values(edgeUsage), 1);
-      const newTrails: PheromoneTrail[] = [];
-      
-      for (const [edgeKey, usage] of Object.entries(edgeUsage)) {
-        const [from, to] = edgeKey.split('_').map(Number);
-        const path = getPathForEdge(from, to);
-        if (path.length > 0) {
-          newTrails.push({
-            path,
-            intensity: Math.min(usage / maxUsage, 1)
-          });
-        }
-      }
-      
-      setPheromoneTrails(newTrails);
-
-      if (onIterationComplete) {
-        onIterationComplete(iter + 1);
-      }
-
-      // Small delay between iterations
-      await new Promise(resolve => setTimeout(resolve, 80 / speedRef.current));
-    }
-
-    setSwarmDots([]);
-    animationRef.current = false;
-  }, [routePolylines]);
+    // This is now a no-op, use animateSwarmIteration instead
+    console.log('animateSwarm called - use animateSwarmIteration instead');
+  }, []);
 
   const stopAnimation = useCallback(() => {
     animationRef.current = false;
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+    }
+    if (swarmAnimationRef.current) {
+      cancelAnimationFrame(swarmAnimationRef.current);
+      swarmAnimationRef.current = null;
     }
     activeAnimationsRef.current.clear();
     setAnimatedAnts([]);
@@ -373,6 +331,7 @@ export function useAntAnimation({ routePolylines, nodeOrder, speed }: UseAntAnim
     activePaths,
     animateSingleAnt,
     animateSwarm,
+    animateSwarmIteration,
     stopAnimation,
     pauseAnimation,
     resumeAnimation,

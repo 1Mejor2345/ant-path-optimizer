@@ -31,7 +31,7 @@ export function SimulatorSection() {
 
   const {
     animatedAnts,
-    swarmAnts,
+    swarmDots,
     pheromoneTrails,
     activePaths,
     animateSingleAnt,
@@ -204,7 +204,7 @@ export function SimulatorSection() {
             showBestRoute={showBestRoute}
             bestRouteColor={bestRouteColor}
             animatedAnts={animatedAnts}
-            swarmAnts={swarmAnts}
+            swarmDots={swarmDots}
             pheromoneTrails={pheromoneTrails}
             activePaths={activePaths}
           />

@@ -289,7 +289,7 @@ export function EnhancedMapView({
           </OverlayView>
         ))}
 
-        {/* Swarm dots (small circles during ACO execution) */}
+        {/* Swarm dots (visible during ACO execution) */}
         {swarmDots.map((dot) => (
           <OverlayView
             key={dot.id}
@@ -297,15 +297,15 @@ export function EnhancedMapView({
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
           >
             <div 
-              className="rounded-full"
+              className="rounded-full animate-pulse"
               style={{ 
                 width: `${dot.size}px`,
                 height: `${dot.size}px`,
                 backgroundColor: dot.color,
                 opacity: dot.opacity,
                 transform: 'translate(-50%, -50%)',
-                boxShadow: `0 0 ${dot.size}px ${dot.color}`,
-                transition: 'none'
+                boxShadow: `0 0 ${dot.size + 4}px ${dot.color}, 0 0 ${dot.size * 2}px ${dot.color}40`,
+                border: '1px solid rgba(255,255,255,0.5)'
               }}
             />
           </OverlayView>

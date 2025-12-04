@@ -35,7 +35,7 @@ export function SimulatorSection() {
     pheromoneTrails,
     activePaths,
     animateSingleAnt,
-    animateSwarm,
+    animateSwarmIteration,
     stopAnimation,
     clearTrails,
     clearPaths
@@ -79,43 +79,17 @@ export function SimulatorSection() {
     clearTrails();
     clearPaths();
     
-    // Keep track of all solutions per iteration
-    let allSolutions: Array<{ tour: number[]; length: number }> = [];
-    let currentIteration = 0;
-    
     const result = await ejecutarACO(
       params,
       speed,
       (iteration, best, solutions) => {
-        // Store solutions from current iteration
-        allSolutions = solutions;
-        currentIteration = iteration;
-        
-        // Create getTourForAnt function for animation
-        const getTourForAnt = (iter: number, antIdx: number) => {
-          if (iter === currentIteration - 1 && antIdx < allSolutions.length) {
-            return allSolutions[antIdx].tour;
-          }
-          return [];
-        };
-        
-        // Animate swarm for this iteration
-        if (iteration === 1 && solutions.length > 0) {
-          // Start swarm animation from first iteration
-          animateSwarm(
-            params.iteraciones,
-            params.numHormigas,
-            (iter, antIdx) => {
-              // Return a valid tour if within bounds
-              if (antIdx < solutions.length) {
-                return solutions[antIdx].tour;
-              }
-              return solutions[0]?.tour || [];
-            },
-            state.pheromone,
-            () => {}
-          );
-        }
+        // Animate swarm dots for this iteration
+        animateSwarmIteration(
+          solutions,
+          iteration,
+          params.iteraciones,
+          state.pheromone
+        );
       },
       (ant, probs) => {
         // Step callback
@@ -123,7 +97,7 @@ export function SimulatorSection() {
     );
     
     return result;
-  }, [ejecutarACO, params, speed, clearTrails, clearPaths, animateSwarm, state.pheromone]);
+  }, [ejecutarACO, params, speed, clearTrails, clearPaths, animateSwarmIteration, state.pheromone]);
 
   const handleRunNN = useCallback(() => {
     if (state.distanceMatrix.length === 0) {

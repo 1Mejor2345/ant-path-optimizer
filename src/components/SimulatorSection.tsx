@@ -7,6 +7,7 @@ import { useAntAnimation } from '@/hooks/useAntAnimation';
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
 import { runNearestNeighbor } from '@/lib/aco-algorithm';
+import { PRELOADED_DISTANCE_MATRIX, generatePreloadedPolylines, getFullNodeOrder } from '@/lib/preloaded-matrix';
 
 export function SimulatorSection() {
   const { isLoaded } = useGoogleMaps();
@@ -14,6 +15,7 @@ export function SimulatorSection() {
   
   const {
     state,
+    setState,
     buildDistanceMatrix,
     ejecutarACO,
     togglePause,
@@ -129,6 +131,39 @@ export function SimulatorSection() {
     addLog(`Animacion ${algorithm.toUpperCase()} completada`, 'success');
   }, [animateSingleAnt, addLog]);
 
+  const handleLoadPreloadedMatrix = useCallback((
+    matrix: number[][],
+    polylines: Record<string, google.maps.LatLngLiteral[]>,
+    nodeOrder: PredefinedPlace[]
+  ) => {
+    setNnSolution(null);
+    clearTrails();
+    
+    // Update simulator state with preloaded data
+    setState(prev => ({
+      ...prev,
+      distanceMatrix: matrix,
+      routePolylines: polylines,
+      fallbackEdges: new Set<string>(),
+      nodeOrder: nodeOrder,
+      bestSolution: null,
+      bestPerIteration: [],
+      pheromone: [],
+      progress: 0,
+      metrics: {
+        ...prev.metrics,
+        apiCalls: 0,
+        totalRetries: 0,
+        fallbackCount: 0
+      }
+    }));
+    
+    addLog(`Matriz precargada: ${nodeOrder.length} ubicaciones (${matrix.length}x${matrix.length})`, 'success');
+    addLog('Usando distancias aproximadas de todos los 14 puntos del campus', 'info');
+    
+    setMatrixProgress(100);
+  }, [clearTrails, addLog, setState]);
+
   const handleReset = useCallback(() => {
     stopAnimation();
     clearTrails();
@@ -145,6 +180,7 @@ export function SimulatorSection() {
       <div className="w-full lg:w-[380px] h-[40vh] lg:h-full border-b lg:border-b-0 lg:border-r border-border overflow-hidden flex flex-col">
         <SimulatorWizard
           onBuildMatrix={handleBuildMatrix}
+          onLoadPreloadedMatrix={handleLoadPreloadedMatrix}
           onRunACO={handleRunACO}
           onRunNN={handleRunNN}
           onAnimateRoute={handleAnimateRoute}

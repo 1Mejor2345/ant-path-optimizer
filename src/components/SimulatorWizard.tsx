@@ -14,13 +14,14 @@ import {
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { type LogEntry, type ACOMetrics } from '@/hooks/useACOSimulator';
 import { cn } from '@/lib/utils';
-import { PRELOADED_DISTANCE_MATRIX, generatePreloadedPolylines, getFullNodeOrder } from '@/lib/preloaded-matrix';
+import { getFullNodeOrder, getCachedMatrix, hasCachedMatrix } from '@/lib/preloaded-matrix';
 
 type WizardStep = 'locations' | 'matrix' | 'params' | 'execute' | 'controls';
 
 interface SimulatorWizardProps {
   onBuildMatrix: (start: PredefinedPlace, stops: PredefinedPlace[], delay: number, retries: number) => Promise<any>;
-  onLoadPreloadedMatrix: (matrix: number[][], polylines: Record<string, google.maps.LatLngLiteral[]>, nodeOrder: PredefinedPlace[]) => void;
+  onBuildFullMatrix: () => Promise<any>;
+  onLoadCachedMatrix: () => boolean;
   onRunACO: () => Promise<any>;
   onRunNN: () => { tour: number[]; length: number } | null;
   onAnimateRoute: (algorithm: 'aco' | 'nn', tour: number[], color: string) => void;
@@ -37,11 +38,13 @@ interface SimulatorWizardProps {
   bestSolution: { tour: number[]; length: number } | null;
   nnSolution: { tour: number[]; length: number } | null;
   nodeOrder: PredefinedPlace[];
+  hasCachedFullMatrix: boolean;
 }
 
 export function SimulatorWizard({
   onBuildMatrix,
-  onLoadPreloadedMatrix,
+  onBuildFullMatrix,
+  onLoadCachedMatrix,
   onRunACO,
   onRunNN,
   onAnimateRoute,
@@ -57,7 +60,8 @@ export function SimulatorWizard({
   acoProgress,
   bestSolution,
   nnSolution,
-  nodeOrder
+  nodeOrder,
+  hasCachedFullMatrix
 }: SimulatorWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>('locations');
   const [selectedStart, setSelectedStart] = useState<string>(predefinedPlaces[0].id);
@@ -65,9 +69,10 @@ export function SimulatorWizard({
   const [params, setParams] = useState(DEFAULT_ACO_PARAMS);
   const [speed, setSpeed] = useState(1);
   const [matrixBuilt, setMatrixBuilt] = useState(false);
-  const [usePreloadedMatrix, setUsePreloadedMatrix] = useState(false);
+  const [useFullMatrix, setUseFullMatrix] = useState(false);
   const [acoExecuted, setAcoExecuted] = useState(false);
   const [localNNSolution, setLocalNNSolution] = useState<{ tour: number[]; length: number } | null>(null);
+  const [buildingFullMatrix, setBuildingFullMatrix] = useState(false);
 
   const stepOrder: WizardStep[] = ['locations', 'matrix', 'params', 'execute', 'controls'];
   const currentStepIndex = stepOrder.indexOf(currentStep);
@@ -75,18 +80,26 @@ export function SimulatorWizard({
   // Reset everything when locations change
   const handleLocationChange = () => {
     setMatrixBuilt(false);
-    setUsePreloadedMatrix(false);
+    setUseFullMatrix(false);
     setAcoExecuted(false);
     setLocalNNSolution(null);
     onReset();
   };
 
-  const handleLoadPreloaded = () => {
-    const fullNodeOrder = getFullNodeOrder();
-    const polylines = generatePreloadedPolylines();
-    onLoadPreloadedMatrix(PRELOADED_DISTANCE_MATRIX, polylines, fullNodeOrder);
+  const handleLoadCached = () => {
+    const loaded = onLoadCachedMatrix();
+    if (loaded) {
+      setMatrixBuilt(true);
+      setUseFullMatrix(true);
+    }
+  };
+
+  const handleBuildFullMatrix = async () => {
+    setBuildingFullMatrix(true);
+    await onBuildFullMatrix();
     setMatrixBuilt(true);
-    setUsePreloadedMatrix(true);
+    setUseFullMatrix(true);
+    setBuildingFullMatrix(false);
   };
 
   const handleStopToggle = (id: string, checked: boolean) => {
@@ -271,29 +284,57 @@ export function SimulatorWizard({
         <h3 className="font-semibold">Matriz de Distancias</h3>
       </div>
 
-      {/* Opción 1: Matriz Precargada */}
+      {/* Opción 1: Matriz Completa (14 puntos) */}
       <div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg p-4 border border-primary/30">
         <div className="flex items-center gap-2 mb-2">
           <Database className="w-4 h-4 text-primary" />
           <p className="text-sm font-medium">Matriz Completa (14 puntos)</p>
+          {hasCachedFullMatrix && (
+            <Badge variant="secondary" className="text-[10px]">Cacheada</Badge>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mb-3">
-          Usa la matriz precargada con todos los 14 puntos del campus. Las hormigas tendrán más libertad para explorar rutas.
+          {hasCachedFullMatrix 
+            ? 'Matriz de rutas reales ya calculada y guardada. Carga instantánea.'
+            : 'Construye la matriz con rutas peatonales reales de Google Maps para los 14 puntos del campus.'
+          }
         </p>
         
         {!matrixBuilt ? (
-          <Button 
-            onClick={handleLoadPreloaded}
-            disabled={isRunning}
-            className="w-full"
-            variant="default"
-          >
-            <Database className="w-4 h-4 mr-2" />
-            Usar Matriz Completa (14 puntos)
-          </Button>
-        ) : usePreloadedMatrix ? (
+          hasCachedFullMatrix ? (
+            <Button 
+              onClick={handleLoadCached}
+              disabled={isRunning}
+              className="w-full"
+              variant="default"
+            >
+              <Database className="w-4 h-4 mr-2" />
+              Cargar Matriz Cacheada (14 pts)
+            </Button>
+          ) : (
+            <Button 
+              onClick={handleBuildFullMatrix}
+              disabled={isRunning || buildingFullMatrix}
+              className="w-full"
+              variant="default"
+            >
+              {buildingFullMatrix ? (
+                <>
+                  <div className="animate-spin mr-2">⏳</div>
+                  Construyendo...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 mr-2" />
+                  Construir Matriz Completa (14 pts)
+                </>
+              )}
+            </Button>
+          )
+        ) : useFullMatrix ? (
           <div className="p-2 bg-secondary/10 rounded border border-secondary/30">
             <p className="text-sm text-secondary font-medium">✓ Matriz completa cargada (14x14)</p>
+            <p className="text-xs text-muted-foreground">Rutas peatonales reales de Google Maps</p>
           </div>
         ) : null}
       </div>
@@ -326,7 +367,7 @@ export function SimulatorWizard({
             <Zap className="w-4 h-4 mr-2" />
             Construir Matriz ({selectedStops.size + 1} puntos)
           </Button>
-        ) : !usePreloadedMatrix ? (
+        ) : !useFullMatrix ? (
           <div className="p-2 bg-secondary/10 rounded border border-secondary/30">
             <p className="text-sm text-secondary font-medium">✓ Matriz construida</p>
             <p className="text-xs text-muted-foreground">
@@ -341,7 +382,7 @@ export function SimulatorWizard({
         <Button 
           onClick={() => {
             setMatrixBuilt(false);
-            setUsePreloadedMatrix(false);
+            setUseFullMatrix(false);
             setAcoExecuted(false);
           }}
           variant="ghost"

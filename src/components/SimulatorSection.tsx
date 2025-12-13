@@ -7,7 +7,7 @@ import { useAntAnimation } from '@/hooks/useAntAnimation';
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { useGoogleMaps } from '@/contexts/GoogleMapsContext';
 import { runNearestNeighbor } from '@/lib/aco-algorithm';
-import { PRELOADED_DISTANCE_MATRIX, generatePreloadedPolylines, getFullNodeOrder } from '@/lib/preloaded-matrix';
+import { getFullNodeOrder, getCachedMatrix, cacheMatrix, hasCachedMatrix } from '@/lib/preloaded-matrix';
 
 export function SimulatorSection() {
   const { isLoaded } = useGoogleMaps();
@@ -75,6 +75,64 @@ export function SimulatorSection() {
     return result;
   }, [buildDistanceMatrix, clearTrails]);
 
+  // Construir matriz completa con los 14 puntos
+  const handleBuildFullMatrix = useCallback(async () => {
+    const fullNodeOrder = getFullNodeOrder();
+    setMatrixProgress(0);
+    setNnSolution(null);
+    clearTrails();
+    
+    const result = await buildDistanceMatrix(
+      fullNodeOrder,
+      directionsServiceRef.current,
+      150,
+      3,
+      (progress) => setMatrixProgress(progress)
+    );
+    
+    // Cachear la matriz para uso futuro
+    if (result) {
+      cacheMatrix(result.matrix, result.polylines);
+      addLog('Matriz completa guardada en cache para uso futuro', 'success');
+    }
+    
+    return result;
+  }, [buildDistanceMatrix, clearTrails, addLog]);
+
+  // Cargar matriz desde cache
+  const handleLoadCachedMatrix = useCallback(() => {
+    const cached = getCachedMatrix();
+    if (!cached) return false;
+    
+    const fullNodeOrder = getFullNodeOrder();
+    setNnSolution(null);
+    clearTrails();
+    
+    setState(prev => ({
+      ...prev,
+      distanceMatrix: cached.matrix,
+      routePolylines: cached.polylines,
+      fallbackEdges: new Set<string>(),
+      nodeOrder: fullNodeOrder,
+      bestSolution: null,
+      bestPerIteration: [],
+      pheromone: [],
+      progress: 0,
+      metrics: {
+        ...prev.metrics,
+        apiCalls: 0,
+        totalRetries: 0,
+        fallbackCount: 0
+      }
+    }));
+    
+    addLog(`Matriz cacheada cargada: 14 ubicaciones (14x14)`, 'success');
+    addLog('Usando rutas peatonales reales de Google Maps', 'info');
+    
+    setMatrixProgress(100);
+    return true;
+  }, [clearTrails, addLog, setState]);
+
   const handleRunACO = useCallback(async () => {
     setShowBestRoute(false);
     setShowPheromoneMap(true);
@@ -131,38 +189,7 @@ export function SimulatorSection() {
     addLog(`Animacion ${algorithm.toUpperCase()} completada`, 'success');
   }, [animateSingleAnt, addLog]);
 
-  const handleLoadPreloadedMatrix = useCallback((
-    matrix: number[][],
-    polylines: Record<string, google.maps.LatLngLiteral[]>,
-    nodeOrder: PredefinedPlace[]
-  ) => {
-    setNnSolution(null);
-    clearTrails();
-    
-    // Update simulator state with preloaded data
-    setState(prev => ({
-      ...prev,
-      distanceMatrix: matrix,
-      routePolylines: polylines,
-      fallbackEdges: new Set<string>(),
-      nodeOrder: nodeOrder,
-      bestSolution: null,
-      bestPerIteration: [],
-      pheromone: [],
-      progress: 0,
-      metrics: {
-        ...prev.metrics,
-        apiCalls: 0,
-        totalRetries: 0,
-        fallbackCount: 0
-      }
-    }));
-    
-    addLog(`Matriz precargada: ${nodeOrder.length} ubicaciones (${matrix.length}x${matrix.length})`, 'success');
-    addLog('Usando distancias aproximadas de todos los 14 puntos del campus', 'info');
-    
-    setMatrixProgress(100);
-  }, [clearTrails, addLog, setState]);
+  // Esta función ya no se usa, pero mantenemos para compatibilidad por ahora
 
   const handleReset = useCallback(() => {
     stopAnimation();
@@ -180,7 +207,8 @@ export function SimulatorSection() {
       <div className="w-full lg:w-[380px] h-[40vh] lg:h-full border-b lg:border-b-0 lg:border-r border-border overflow-hidden flex flex-col">
         <SimulatorWizard
           onBuildMatrix={handleBuildMatrix}
-          onLoadPreloadedMatrix={handleLoadPreloadedMatrix}
+          onBuildFullMatrix={handleBuildFullMatrix}
+          onLoadCachedMatrix={handleLoadCachedMatrix}
           onRunACO={handleRunACO}
           onRunNN={handleRunNN}
           onAnimateRoute={handleAnimateRoute}
@@ -197,6 +225,7 @@ export function SimulatorSection() {
           bestSolution={state.bestSolution}
           nnSolution={nnSolution}
           nodeOrder={state.nodeOrder}
+          hasCachedFullMatrix={hasCachedMatrix()}
         />
       </div>
       

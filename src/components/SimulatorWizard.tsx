@@ -9,16 +9,18 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { 
   Play, Pause, RotateCcw, MapPin, Settings, Zap, 
-  ChevronRight, ChevronLeft, Bug, Route, ArrowRight
+  ChevronRight, ChevronLeft, Bug, Route, ArrowRight, Database
 } from 'lucide-react';
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { type LogEntry, type ACOMetrics } from '@/hooks/useACOSimulator';
 import { cn } from '@/lib/utils';
+import { PRELOADED_DISTANCE_MATRIX, generatePreloadedPolylines, getFullNodeOrder } from '@/lib/preloaded-matrix';
 
 type WizardStep = 'locations' | 'matrix' | 'params' | 'execute' | 'controls';
 
 interface SimulatorWizardProps {
   onBuildMatrix: (start: PredefinedPlace, stops: PredefinedPlace[], delay: number, retries: number) => Promise<any>;
+  onLoadPreloadedMatrix: (matrix: number[][], polylines: Record<string, google.maps.LatLngLiteral[]>, nodeOrder: PredefinedPlace[]) => void;
   onRunACO: () => Promise<any>;
   onRunNN: () => { tour: number[]; length: number } | null;
   onAnimateRoute: (algorithm: 'aco' | 'nn', tour: number[], color: string) => void;
@@ -39,6 +41,7 @@ interface SimulatorWizardProps {
 
 export function SimulatorWizard({
   onBuildMatrix,
+  onLoadPreloadedMatrix,
   onRunACO,
   onRunNN,
   onAnimateRoute,
@@ -62,6 +65,7 @@ export function SimulatorWizard({
   const [params, setParams] = useState(DEFAULT_ACO_PARAMS);
   const [speed, setSpeed] = useState(1);
   const [matrixBuilt, setMatrixBuilt] = useState(false);
+  const [usePreloadedMatrix, setUsePreloadedMatrix] = useState(false);
   const [acoExecuted, setAcoExecuted] = useState(false);
   const [localNNSolution, setLocalNNSolution] = useState<{ tour: number[]; length: number } | null>(null);
 
@@ -71,9 +75,18 @@ export function SimulatorWizard({
   // Reset everything when locations change
   const handleLocationChange = () => {
     setMatrixBuilt(false);
+    setUsePreloadedMatrix(false);
     setAcoExecuted(false);
     setLocalNNSolution(null);
     onReset();
+  };
+
+  const handleLoadPreloaded = () => {
+    const fullNodeOrder = getFullNodeOrder();
+    const polylines = generatePreloadedPolylines();
+    onLoadPreloadedMatrix(PRELOADED_DISTANCE_MATRIX, polylines, fullNodeOrder);
+    setMatrixBuilt(true);
+    setUsePreloadedMatrix(true);
   };
 
   const handleStopToggle = (id: string, checked: boolean) => {
@@ -255,15 +268,47 @@ export function SimulatorWizard({
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
         <Route className="w-5 h-5 text-primary" />
-        <h3 className="font-semibold">Construir Matriz de Distancias</h3>
+        <h3 className="font-semibold">Matriz de Distancias</h3>
       </div>
 
-      <div className="bg-muted/20 rounded-lg p-4 border border-border/50">
-        <p className="text-sm text-muted-foreground mb-4">
-          Se calcularán las rutas peatonales reales entre todos los puntos seleccionados usando Google Maps.
+      {/* Opción 1: Matriz Precargada */}
+      <div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg p-4 border border-primary/30">
+        <div className="flex items-center gap-2 mb-2">
+          <Database className="w-4 h-4 text-primary" />
+          <p className="text-sm font-medium">Matriz Completa (14 puntos)</p>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Usa la matriz precargada con todos los 14 puntos del campus. Las hormigas tendrán más libertad para explorar rutas.
         </p>
         
-        <div className="space-y-2">
+        {!matrixBuilt ? (
+          <Button 
+            onClick={handleLoadPreloaded}
+            disabled={isRunning}
+            className="w-full"
+            variant="default"
+          >
+            <Database className="w-4 h-4 mr-2" />
+            Usar Matriz Completa (14 puntos)
+          </Button>
+        ) : usePreloadedMatrix ? (
+          <div className="p-2 bg-secondary/10 rounded border border-secondary/30">
+            <p className="text-sm text-secondary font-medium">✓ Matriz completa cargada (14x14)</p>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Opción 2: Construir solo seleccionados */}
+      <div className="bg-muted/20 rounded-lg p-4 border border-border/50">
+        <div className="flex items-center gap-2 mb-2">
+          <Zap className="w-4 h-4 text-muted-foreground" />
+          <p className="text-sm font-medium">Solo Puntos Seleccionados</p>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Calcula rutas peatonales reales vía Google Maps solo para los {selectedStops.size + 1} puntos seleccionados.
+        </p>
+        
+        <div className="space-y-2 mb-3">
           <div className="flex justify-between text-sm">
             <span>Progreso</span>
             <span className="font-mono">{matrixProgress.toFixed(0)}%</span>
@@ -271,26 +316,42 @@ export function SimulatorWizard({
           <Progress value={matrixProgress} className="h-2" />
         </div>
 
-        {!matrixBuilt && (
+        {!matrixBuilt ? (
           <Button 
             onClick={handleBuildMatrix}
             disabled={isRunning}
-            className="w-full mt-4"
+            className="w-full"
+            variant="outline"
           >
             <Zap className="w-4 h-4 mr-2" />
-            Construir Matriz
+            Construir Matriz ({selectedStops.size + 1} puntos)
           </Button>
-        )}
-
-        {matrixBuilt && matrixProgress >= 100 && (
-          <div className="mt-4 p-3 bg-secondary/10 rounded-lg border border-secondary/30">
-            <p className="text-sm text-secondary font-medium">✓ Matriz construida exitosamente</p>
-            <p className="text-xs text-muted-foreground mt-1">
+        ) : !usePreloadedMatrix ? (
+          <div className="p-2 bg-secondary/10 rounded border border-secondary/30">
+            <p className="text-sm text-secondary font-medium">✓ Matriz construida</p>
+            <p className="text-xs text-muted-foreground">
               {metrics.apiCalls} llamadas API, {metrics.fallbackCount} fallbacks
             </p>
           </div>
-        )}
+        ) : null}
       </div>
+
+      {/* Botón para reconstruir si ya hay matriz */}
+      {matrixBuilt && (
+        <Button 
+          onClick={() => {
+            setMatrixBuilt(false);
+            setUsePreloadedMatrix(false);
+            setAcoExecuted(false);
+          }}
+          variant="ghost"
+          size="sm"
+          className="w-full text-muted-foreground"
+        >
+          <RotateCcw className="w-3 h-3 mr-1" />
+          Cambiar tipo de matriz
+        </Button>
+      )}
 
       <div className="flex gap-2">
         <Button variant="outline" onClick={goToPrevStep} className="flex-1">

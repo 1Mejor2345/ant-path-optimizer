@@ -75,12 +75,14 @@ export function SimulatorSection() {
     return result;
   }, [buildDistanceMatrix, clearTrails]);
 
-  // Construir matriz completa con los 14 puntos
+  // Construir matriz completa con los 14 puntos (TEMPORAL: solo console.log)
   const handleBuildFullMatrix = useCallback(async () => {
     const fullNodeOrder = getFullNodeOrder();
     setMatrixProgress(0);
     setNnSolution(null);
     clearTrails();
+    
+    addLog('Construyendo matriz completa de 14 puntos via API...', 'info');
     
     const result = await buildDistanceMatrix(
       fullNodeOrder,
@@ -90,10 +92,19 @@ export function SimulatorSection() {
       (progress) => setMatrixProgress(progress)
     );
     
-    // Cachear la matriz para uso futuro
+    // TEMPORAL: Solo hacer console.log del JSON para copiar manualmente
     if (result) {
-      cacheMatrix(result.matrix, result.polylines);
-      addLog('Matriz completa guardada en cache para uso futuro', 'success');
+      console.log('=== MATRIZ DE DISTANCIAS 14x14 ===');
+      console.log('Copia este JSON:');
+      console.log(JSON.stringify(result.matrix));
+      console.log('=== FIN MATRIZ ===');
+      
+      console.log('=== POLYLINES (rutas) ===');
+      console.log('Copia este JSON:');
+      console.log(JSON.stringify(result.polylines));
+      console.log('=== FIN POLYLINES ===');
+      
+      addLog('✓ Matriz calculada! Revisa la consola del navegador (F12)', 'success');
     }
     
     return result;

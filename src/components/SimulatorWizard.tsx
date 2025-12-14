@@ -14,14 +14,13 @@ import {
 import { predefinedPlaces, DEFAULT_ACO_PARAMS, type PredefinedPlace } from '@/lib/maps-constants';
 import { type LogEntry, type ACOMetrics } from '@/hooks/useACOSimulator';
 import { cn } from '@/lib/utils';
-import { getFullNodeOrder, getCachedMatrix, hasCachedMatrix } from '@/lib/preloaded-matrix';
+import { getFullNodeOrder, extractSubMatrix, extractSubPolylines, getPlaceIndex } from '@/lib/preloaded-matrix';
 
 type WizardStep = 'locations' | 'matrix' | 'params' | 'execute' | 'controls';
 
 interface SimulatorWizardProps {
   onBuildMatrix: (start: PredefinedPlace, stops: PredefinedPlace[], delay: number, retries: number) => Promise<any>;
-  onBuildFullMatrix: () => Promise<any>;
-  onLoadCachedMatrix: () => boolean;
+  onLoadPreloadedMatrix: (nodeOrder: PredefinedPlace[], matrix: number[][], polylines: Record<string, google.maps.LatLngLiteral[]>) => void;
   onRunACO: () => Promise<any>;
   onRunNN: () => { tour: number[]; length: number } | null;
   onAnimateRoute: (algorithm: 'aco' | 'nn', tour: number[], color: string) => void;
@@ -38,13 +37,11 @@ interface SimulatorWizardProps {
   bestSolution: { tour: number[]; length: number } | null;
   nnSolution: { tour: number[]; length: number } | null;
   nodeOrder: PredefinedPlace[];
-  hasCachedFullMatrix: boolean;
 }
 
 export function SimulatorWizard({
   onBuildMatrix,
-  onBuildFullMatrix,
-  onLoadCachedMatrix,
+  onLoadPreloadedMatrix,
   onRunACO,
   onRunNN,
   onAnimateRoute,
@@ -60,8 +57,7 @@ export function SimulatorWizard({
   acoProgress,
   bestSolution,
   nnSolution,
-  nodeOrder,
-  hasCachedFullMatrix
+  nodeOrder
 }: SimulatorWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>('locations');
   const [selectedStart, setSelectedStart] = useState<string>(predefinedPlaces[0].id);
@@ -69,10 +65,8 @@ export function SimulatorWizard({
   const [params, setParams] = useState(DEFAULT_ACO_PARAMS);
   const [speed, setSpeed] = useState(1);
   const [matrixBuilt, setMatrixBuilt] = useState(false);
-  const [useFullMatrix, setUseFullMatrix] = useState(false);
   const [acoExecuted, setAcoExecuted] = useState(false);
   const [localNNSolution, setLocalNNSolution] = useState<{ tour: number[]; length: number } | null>(null);
-  const [buildingFullMatrix, setBuildingFullMatrix] = useState(false);
 
   const stepOrder: WizardStep[] = ['locations', 'matrix', 'params', 'execute', 'controls'];
   const currentStepIndex = stepOrder.indexOf(currentStep);
@@ -80,26 +74,26 @@ export function SimulatorWizard({
   // Reset everything when locations change
   const handleLocationChange = () => {
     setMatrixBuilt(false);
-    setUseFullMatrix(false);
     setAcoExecuted(false);
     setLocalNNSolution(null);
     onReset();
   };
 
-  const handleLoadCached = () => {
-    const loaded = onLoadCachedMatrix();
-    if (loaded) {
-      setMatrixBuilt(true);
-      setUseFullMatrix(true);
-    }
-  };
-
-  const handleBuildFullMatrix = async () => {
-    setBuildingFullMatrix(true);
-    await onBuildFullMatrix();
+  // Cargar matriz precargada (sin API)
+  const handleLoadPreloaded = () => {
+    const start = predefinedPlaces.find(p => p.id === selectedStart)!;
+    const stops = predefinedPlaces.filter(p => selectedStops.has(p.id));
+    const nodeOrderLocal = [start, ...stops];
+    
+    // Obtener índices originales de los nodos seleccionados
+    const selectedIndices = nodeOrderLocal.map(p => getPlaceIndex(p.id));
+    
+    // Extraer sub-matriz y polylines
+    const subMatrix = extractSubMatrix(selectedIndices);
+    const subPolylines = extractSubPolylines(selectedIndices);
+    
+    onLoadPreloadedMatrix(nodeOrderLocal, subMatrix, subPolylines);
     setMatrixBuilt(true);
-    setUseFullMatrix(true);
-    setBuildingFullMatrix(false);
   };
 
   const handleStopToggle = (id: string, checked: boolean) => {
